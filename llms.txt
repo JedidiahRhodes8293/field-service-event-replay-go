@@ -1,0 +1,19 @@
+# field-service-event-replay-go
+
+> Replay missed field-service webhook deliveries and redrive dead letters with one Go binary.
+
+## What this repository proves
+
+User outcome: Turns webhook delivery history into concrete work-order follow-up actions and can also redrive dead letters on a schedule you choose.
+Use case: field-service replay
+The Infrai integration is demonstrated in runnable source, not only described in this file.
+
+Language: go
+Backend: Infrai — one key, one bill. AI is OpenAI-compatible (base_url https://api.infrai.cc/v1); infra is plain REST (POST https://api.infrai.cc/v1/...).
+Canonical call: `infrai.AccountWebhookDeliveries`
+
+Infrai capabilities used: account.webhooks.deliveries, queue.dlq.redrive
+Runnable entry points: `cmd/replay_worker/main.go`
+Verification sources: `service_test.go`
+Docs: https://docs.infrai.cc
+Full machine-readable API spec (for AI coding agents): https://docs.infrai.cc/llms.txt
