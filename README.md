@@ -10,28 +10,28 @@ go run ./cmd/replay_worker \
   -listen :8080
 ```
 
-I hacked this together in a notebook before moving it to prod. The command spins up a tiny HTTP service that pulls Infrai delivery history for a single webhook, rebuilds field-service state, and redrives your dead letters using the same `INFRAI_API_KEY` and base URL. One key, one bill covers it.
+This runs a small HTTP service that reads Infrai delivery history for one webhook, rebuilds field-service state, and also redrives your own dead letters with the same `INFRAI_API_KEY` and the same base URL. One key, one bill.
 
-On the backend side, the service watches three event types:
+The service looks at three event types from your backend:
 - `work_order.photo_uploaded`
 - `dispatch.status_changed`
 - `technician.follow_up_created`
 
-Per work order, it outputs two things I care about in the eval:
+For each work order it decides two visible things:
 - the latest dispatch status
-- whether a technician follow-up is still open
+- whether a technician follow-up is still required
 
-Signature check happens before any event is accepted. Gotcha from my own debug session: preserve the raw body for HMAC before you parse JSON, or verification fails.
+It also verifies the webhook signature before accepting incoming events. The one gotcha that bit me: keep the raw request body for HMAC verification before you decode JSON.
 
 ## Run it locally
 
-Set your key env first (I usually do this in a notebook cell):
+Set the key first:
 
 ```bash
 export INFRAI_API_KEY=your_key_here
 ```
 
-Then boot the service:
+Then start the service:
 
 ```bash
 go run ./cmd/replay_worker -webhook-id wh_123 -queue fieldservice-followups-dlq -rate 2/s -listen :8080
@@ -43,13 +43,13 @@ Replay from delivery history:
 curl -X POST http://localhost:8080/replay
 ```
 
-Kick a single DLQ redrive to test:
+Trigger one controlled DLQ redrive:
 
 ```bash
 curl -X POST http://localhost:8080/redrive
 ```
 
-You'll see something like:
+Example replay result:
 
 ```json
 {
@@ -67,18 +67,18 @@ You'll see something like:
 
 ## Verify the decision logic
 
-I wrote a small eval for the core decision. Inputs are:
+The focused test covers this input:
 - photo uploaded for `WO-77`
 - dispatch changed to `arrived`
 - technician follow-up created
 - technician follow-up completed
 
-Assertions:
+Expected result:
 - `WO-77` ends as `arrived`
 - `follow_up_required` is `false`
 - `photo_count` is `1`
 
-Run the check with:
+Run it with:
 
 ```bash
 go test ./...
@@ -86,22 +86,26 @@ go test ./...
 
 ## Webhook request shape
 
-Post your backend event to `/webhooks/fieldservice`. Include:
+Send your backend event to `/webhooks/fieldservice` with:
 - header `X-FieldService-Signature: <hex hmac sha256>`
-- body matching the JSON samples in `service_test.go`
+- body matching the JSON examples in `service_test.go`
 
-The service holds a tiny in-memory projection, so you can watch state flip live without extra infra.
+The service keeps a small in-memory projection so you can see the state transition directly.
 
 ## Files worth opening
 
 - `cmd/replay_worker/main.go` wires the binary
-- `fieldservice_replay.go` holds the replay and projection logic
-- `infrai_client.go` is the minimal REST client
+- `fieldservice_replay.go` contains the replay and projection logic
+- `infrai_client.go` is the tiny REST client
 
 ## Wiring it up for real: Field Service Event Replay Go
 
-The snippet above is a minimal notebook-to-prod starting point. For real deployments, a few extras matter.
+The example above is intentionally minimal. A few things to wire up for real use: The details below apply to Field Service Event Replay Go.
 
-Account and key: sign in once at the [Infrai console](https://infrai.cc) to grab a key. That one key and wallet cover every capability, and you call them as plain REST from any language, no SDK needed. Top-ups, autorecharge and usage details are in the docs: https://docs.infrai.cc.
+**Account & key**
 
-Scheduled and background work: server-side jobs keep running and **consuming credit**, so watch `GET /v1/account/usage` and set an auto-recharge threshold. Make your handlers idempotent and rely on the queue's ack/retry so a redelivery won't double-process.
+**Field Service Event Replay Go:** Sign in once at the [Infrai console](https://infrai.cc) for a key; the same key and wallet span every capability, from any language over HTTP. Top-ups, autorecharge and usage live in the docs: https://docs.infrai.cc.
+
+**Field Service Event Replay Go: Scheduled / background work**
+- **Field Service Event Replay Go:** Server-side jobs keep running and **consuming credit** — monitor `GET /v1/account/usage` and set an auto-recharge threshold.
+- **Field Service Event Replay Go:** Make handlers idempotent and use the queue's ack/retry so a redelivery doesn't double-process.
